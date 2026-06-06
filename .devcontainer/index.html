@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>股市行情 — 即時報價</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg:        #0d0f14;
+    --bg2:       #13161e;
+    --bg3:       #1a1e28;
+    --border:    #252a38;
+    --text:      #e4e8f0;
+    --muted:     #6b7385;
+    --up:        #00d084;
+    --down:      #ff4d6a;
+    --flat:      #8892a4;
+    --accent:    #5271ff;
+    --accent2:   #ff9500;
+    --header-h:  56px;
+    --ticker-h:  38px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Noto Sans TC', sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── TOP HEADER ── */
+  .header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    height: var(--header-h);
+    background: rgba(13,15,20,0.95);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 20px;
+  }
+  .logo {
+    font-size: 18px; font-weight: 700; letter-spacing: -0.5px;
+    color: var(--text);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .logo span { color: var(--accent); }
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--up); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .search-wrap {
+    flex: 1; max-width: 420px; margin: 0 24px;
+    position: relative;
+  }
+  .search-wrap input {
+    width: 100%; padding: 8px 16px 8px 36px;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); font-size: 13px;
+    font-family: inherit; outline: none; transition: border-color .2s;
+  }
+  .search-wrap input:focus { border-color: var(--accent); }
+  .search-wrap input::placeholder { color: var(--muted); }
+  .search-icon {
+    position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    color: var(--muted); font-size: 14px; pointer-events: none;
+  }
+  .search-results {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; z-index: 200; display: none;
+  }
+  .search-results.show { display: block; }
+  .search-item {
+    padding: 10px 14px; cursor: pointer; display: flex; justify-content: space-between;
+    transition: background .15s;
+  }
+  .search-item:hover { background: var(--bg3); }
+  .search-item .sym { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent); }
+  .search-item .nm { color: var(--text); }
+  .search-item .ex { color: var(--muted); font-size: 11px; }
+
+  .header-time {
+    font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--muted);
+    white-space: nowrap;
+  }
+
+  /* ── TICKER TAPE ── */
+  .ticker-tape {
+    position: fixed; top: var(--header-h); left: 0; right: 0; z-index: 99;
+    height: var(--ticker-h);
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    overflow: hidden; display: flex; align-items: center;
+  }
+  .ticker-inner {
+    display: flex; white-space: nowrap;
+    animation: ticker 60s linear infinite;
+  }
+  .ticker-inner:hover { animation-play-state: paused; }
+  @keyframes ticker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+  .ticker-item {
+    padding: 0 20px; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; cursor: pointer; transition: background .15s;
+  }
+  .ticker-item:hover { background: var(--bg3); }
+  .ticker-sym { font-family: 'IBM Plex Mono', monospace; color: var(--muted); font-size: 11px; }
+  .ticker-price { font-weight: 500; }
+  .ticker-chg { font-size: 11px; }
+  .up { color: var(--up); }
+  .down { color: var(--down); }
+  .flat { color: var(--flat); }
+
+  /* ── LAYOUT ── */
+  .main-content {
+    margin-top: calc(var(--header-h) + var(--ticker-h));
+    padding: 20px;
+    max-width: 1560px; margin-left: auto; margin-right: auto;
+    padding-top: calc(var(--header-h) + var(--ticker-h) + 20px);
+  }
+
+  /* ── NAV TABS ── */
+  .nav-tabs {
+    display: flex; gap: 2px; margin-bottom: 20px;
+    border-bottom: 1px solid var(--border); padding-bottom: 0;
+  }
+  .tab-btn {
+    padding: 10px 18px; background: none; border: none; cursor: pointer;
+    color: var(--muted); font-size: 13px; font-family: inherit;
+    position: relative; transition: color .2s;
+  }
+  .tab-btn::after {
+    content: ''; position: absolute; bottom: -1px; left: 0; right: 0; height: 2px;
+    background: var(--accent); transform: scaleX(0); transition: transform .2s;
+  }
+  .tab-btn.active { color: var(--text); }
+  .tab-btn.active::after { transform: scaleX(1); }
+  .tab-btn:hover { color: var(--text); }
+
+  /* ── INDEX CARDS ── */
+  .index-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 10px; margin-bottom: 20px;
+  }
+  .index-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+    cursor: pointer; transition: border-color .2s, transform .2s;
+    position: relative; overflow: hidden;
+  }
+  .index-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .index-card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+  .index-card.up-card::before { background: var(--up); }
+  .index-card.down-card::before { background: var(--down); }
+  .card-name { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .card-price { font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 500; }
+  .card-change { font-size: 12px; margin-top: 4px; }
+
+  /* ── TWO-COLUMN LAYOUT ── */
+  .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 16px; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+
+  /* ── PANEL ── */
+  .panel {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; overflow: hidden;
+  }
+  .panel-header {
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .panel-title { font-size: 14px; font-weight: 500; }
+  .panel-meta { font-size: 11px; color: var(--muted); }
+
+  /* ── TABLE ── */
+  .stock-table { width: 100%; border-collapse: collapse; }
+  .stock-table th {
+    padding: 8px 12px; text-align: right; color: var(--muted);
+    font-weight: 400; font-size: 11px; letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--border); cursor: pointer; user-select: none;
+  }
+  .stock-table th:first-child { text-align: left; }
+  .stock-table th:hover { color: var(--text); }
+  .stock-table td {
+    padding: 9px 12px; text-align: right;
+    border-bottom: 1px solid rgba(37,42,56,0.5);
+    font-size: 12.5px;
+  }
+  .stock-table td:first-child { text-align: left; }
+  .stock-table tbody tr { cursor: pointer; transition: background .1s; }
+  .stock-table tbody tr:hover { background: var(--bg3); }
+  .stock-table tbody tr:last-child td { border-bottom: none; }
+  .sym-col { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent); }
+  .name-col { color: var(--text); }
+  .price-col { font-family: 'IBM Plex Mono', monospace; font-weight: 500; }
+  .vol-col { color: var(--muted); font-family: 'IBM Plex Mono', monospace; font-size: 11px; }
+
+  /* ── CHANGE BADGE ── */
+  .chg-badge {
+    display: inline-block; padding: 2px 6px; border-radius: 4px;
+    font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500;
+  }
+  .chg-badge.up { background: rgba(0,208,132,0.12); color: var(--up); }
+  .chg-badge.down { background: rgba(255,77,106,0.12); color: var(--down); }
+  .chg-badge.flat { background: rgba(136,146,164,0.1); color: var(--flat); }
+
+  /* ── MINI SPARKLINE ── */
+  .sparkline { width: 80px; height: 28px; display: inline-block; vertical-align: middle; }
+
+  /* ── HEATMAP ── */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 3px; padding: 12px;
+  }
+  .heat-sector { margin-bottom: 8px; }
+  .heat-sector-label { font-size: 10px; color: var(--muted); padding: 4px 6px; }
+  .heat-stock {
+    padding: 8px 6px; border-radius: 5px; text-align: center;
+    cursor: pointer; transition: filter .2s; font-size: 11px; line-height: 1.3;
+  }
+  .heat-stock:hover { filter: brightness(1.2); }
+  .heat-stock .hs-sym { font-weight: 700; font-size: 11px; }
+  .heat-stock .hs-chg { font-size: 10px; opacity: 0.85; }
+
+  /* ── NEWS LIST ── */
+  .news-list { padding: 0; }
+  .news-item {
+    padding: 12px 16px; border-bottom: 1px solid rgba(37,42,56,0.5);
+    cursor: pointer; transition: background .1s;
+  }
+  .news-item:hover { background: var(--bg3); }
+  .news-item:last-child { border-bottom: none; }
+  .news-title { font-size: 13px; line-height: 1.4; margin-bottom: 4px; }
+  .news-meta { font-size: 11px; color: var(--muted); display: flex; gap: 8px; }
+  .news-source { color: var(--accent); }
+
+  /* ── MOVERS ── */
+  .movers-list { padding: 8px 0; }
+  .mover-item {
+    padding: 8px 16px; display: flex; align-items: center; justify-content: space-between;
+    cursor: pointer; transition: background .1s;
+  }
+  .mover-item:hover { background: var(--bg3); }
+  .mover-left { display: flex; flex-direction: column; gap: 1px; }
+  .mover-sym { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent); }
+  .mover-name { font-size: 11px; color: var(--muted); }
+  .mover-right { text-align: right; }
+  .mover-price { font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .movers-label {
+    padding: 6px 16px; font-size: 10px; font-weight: 700; letter-spacing: 1px;
+    color: var(--muted); text-transform: uppercase;
+  }
+
+  /* ── CHART AREA ── */
+  .chart-container {
+    padding: 16px; height: 320px; position: relative;
+  }
+  .chart-periods {
+    display: flex; gap: 4px; padding: 0 16px 8px;
+  }
+  .period-btn {
+    padding: 3px 10px; border-radius: 4px; border: none;
+    background: var(--bg3); color: var(--muted);
+    font-size: 11px; cursor: pointer; font-family: inherit;
+    transition: all .15s;
+  }
+  .period-btn.active { background: var(--accent); color: white; }
+  .period-btn:hover:not(.active) { color: var(--text); }
+
+  /* ── FOREX / CRYPTO ── */
+  .mini-table { width: 100%; border-collapse: collapse; }
+  .mini-table td { padding: 9px 14px; border-bottom: 1px solid rgba(37,42,56,0.5); font-size: 12.5px; }
+  .mini-table tr:last-child td { border-bottom: none; }
+  .mini-table tr { cursor: default; }
+  .mono { font-family: 'IBM Plex Mono', monospace; }
+
+  /* ── LOADING ── */
+  .loading { 
+    display: flex; align-items: center; justify-content: center; 
+    height: 60px; color: var(--muted); gap: 8px;
+  }
+  .spinner {
+    width: 14px; height: 14px; border: 2px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── TABS CONTENT ── */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── DETAIL MODAL ── */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
+    display: none; align-items: flex-start; justify-content: center;
+    padding-top: 80px; overflow-y: auto;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 14px; width: 90%; max-width: 860px;
+    padding: 24px; position: relative;
+    animation: slideUp .25s ease;
+  }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-close {
+    position: absolute; top: 16px; right: 16px;
+    background: var(--bg3); border: none; color: var(--muted);
+    width: 28px; height: 28px; border-radius: 50%; cursor: pointer;
+    font-size: 16px; display: flex; align-items: center; justify-content: center;
+    transition: color .2s;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-symbol { font-family: 'IBM Plex Mono', monospace; color: var(--accent); font-size: 13px; }
+  .modal-name { font-size: 22px; font-weight: 700; margin: 4px 0 2px; }
+  .modal-price { font-family: 'IBM Plex Mono', monospace; font-size: 32px; font-weight: 500; }
+  .modal-change { font-size: 14px; margin-top: 4px; }
+  .modal-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 12px; margin: 20px 0; padding: 16px;
+    background: var(--bg3); border-radius: 8px;
+  }
+  .stat-item { display: flex; flex-direction: column; gap: 3px; }
+  .stat-label { font-size: 10px; color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; }
+  .stat-value { font-family: 'IBM Plex Mono', monospace; font-size: 14px; }
+  .modal-desc { font-size: 12px; color: var(--muted); line-height: 1.7; margin-top: 12px; }
+  .modal-chart { height: 240px; margin-top: 16px; }
+
+  /* ── RESPONSIVE ── */
+  @media(max-width: 900px) {
+    .two-col { grid-template-columns: 1fr; }
+    .three-col { grid-template-columns: 1fr 1fr; }
+    .modal-stats { grid-template-columns: repeat(2,1fr); }
+  }
+  @media(max-width: 600px) {
+    .main-content { padding: 12px; }
+    .index-grid { grid-template-columns: repeat(2, 1fr); }
+    .three-col { grid-template-columns: 1fr; }
+    .heatmap-grid { grid-template-columns: repeat(3,1fr); }
+    .header { padding: 0 12px; }
+    .search-wrap { max-width: 220px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<header class="header">
+  <div class="logo">
+    <div class="logo-dot"></div>
+    <span>股</span>市行情
+  </div>
+  <div class="search-wrap">
+    <span class="search-icon">⌕</span>
+    <input type="text" id="searchInput" placeholder="搜尋股票、ETF、指數…" autocomplete="off">
+    <div class="search-results" id="searchResults"></div>
+  </div>
+  <div class="header-time" id="headerTime">—</div>
+</header>
+
+<!-- ── TICKER TAPE ── -->
+<div class="ticker-tape">
+  <div class="ticker-inner" id="tickerInner">
+    <div style="padding:0 20px;color:var(--muted);font-size:11px">載入中…</div>
+  </div>
+</div>
+
+<!-- ── MAIN ── -->
+<main class="main-content">
+
+  <!-- NAV TABS -->
+  <nav class="nav-tabs">
+    <button class="tab-btn active" data-tab="overview">總覽</button>
+    <button class="tab-btn" data-tab="tw">台股</button>
+    <button class="tab-btn" data-tab="us">美股</button>
+    <button class="tab-btn" data-tab="etf">ETF</button>
+    <button class="tab-btn" data-tab="forex">外匯</button>
+    <button class="tab-btn" data-tab="crypto">加密貨幣</button>
+    <button class="tab-btn" data-tab="commodities">商品</button>
+    <button class="tab-btn" data-tab="heatmap">熱力圖</button>
+  </nav>
+
+  <!-- ── TAB: 總覽 ── -->
+  <div class="tab-content active" id="tab-overview">
+    <!-- Index Cards -->
+    <div class="index-grid" id="indexCards">
+      <div class="loading"><div class="spinner"></div> 載入指數…</div>
+    </div>
+
+    <div class="two-col">
+      <!-- Left: TW Stocks preview + Chart -->
+      <div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-header">
+            <span class="panel-title">台灣加權指數</span>
+            <div class="chart-periods" style="padding:0;gap:4px">
+              <button class="period-btn active" data-sym="^TWII" data-period="1d" data-interval="5m">1日</button>
+              <button class="period-btn" data-sym="^TWII" data-period="1wk" data-interval="1h">1週</button>
+              <button class="period-btn" data-sym="^TWII" data-period="1mo" data-interval="1d">1月</button>
+              <button class="period-btn" data-sym="^TWII" data-period="3mo" data-interval="1d">3月</button>
+              <button class="period-btn" data-sym="^TWII" data-period="1y" data-interval="1wk">1年</button>
+            </div>
+          </div>
+          <div class="chart-container"><canvas id="mainChart"></canvas></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-header">
+            <span class="panel-title">台股熱門</span>
+            <span class="panel-meta" style="cursor:pointer;color:var(--accent)" onclick="switchTab('tw')">查看更多 →</span>
+          </div>
+          <table class="stock-table">
+            <thead>
+              <tr>
+                <th>代號</th><th>名稱</th><th>成交</th><th>漲跌</th><th>漲跌幅</th><th>成交量</th>
+              </tr>
+            </thead>
+            <tbody id="overviewTwStocks">
+              <tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Right: Movers + News -->
+      <div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-header"><span class="panel-title">漲跌排行</span></div>
+          <div class="movers-list" id="moversList">
+            <div class="loading"><div class="spinner"></div></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-header"><span class="panel-title">市場新聞</span></div>
+          <div class="news-list" id="newsList">
+            <div class="loading"><div class="spinner"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: 台股 ── -->
+  <div class="tab-content" id="tab-tw">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">台灣股票</span>
+        <span class="panel-meta" id="twMeta"></span>
+      </div>
+      <table class="stock-table">
+        <thead>
+          <tr>
+            <th onclick="sortTable('tw','symbol')">代號 ↕</th>
+            <th onclick="sortTable('tw','name')">名稱 ↕</th>
+            <th onclick="sortTable('tw','price')">成交 ↕</th>
+            <th onclick="sortTable('tw','open')">開盤 ↕</th>
+            <th onclick="sortTable('tw','high')">最高 ↕</th>
+            <th onclick="sortTable('tw','low')">最低 ↕</th>
+            <th onclick="sortTable('tw','change')">漲跌 ↕</th>
+            <th onclick="sortTable('tw','change_pct')">漲跌幅 ↕</th>
+            <th onclick="sortTable('tw','volume')">成交量 ↕</th>
+          </tr>
+        </thead>
+        <tbody id="twStocksBody">
+          <tr><td colspan="9"><div class="loading"><div class="spinner"></div> 載入中…</div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: 美股 ── -->
+  <div class="tab-content" id="tab-us">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">美國股票</span></div>
+      <table class="stock-table">
+        <thead>
+          <tr>
+            <th>代號</th><th>名稱</th><th>成交</th>
+            <th>漲跌</th><th>漲跌幅</th><th>成交量</th>
+          </tr>
+        </thead>
+        <tbody id="usStocksBody">
+          <tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: ETF ── -->
+  <div class="tab-content" id="tab-etf">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">台灣 ETF</span></div>
+      <table class="stock-table">
+        <thead>
+          <tr><th>代號</th><th>名稱</th><th>淨值</th><th>漲跌</th><th>漲跌幅</th><th>成交量</th></tr>
+        </thead>
+        <tbody id="etfBody">
+          <tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: 外匯 ── -->
+  <div class="tab-content" id="tab-forex">
+    <div class="three-col">
+      <div class="panel">
+        <div class="panel-header"><span class="panel-title">外匯匯率</span></div>
+        <table class="mini-table">
+          <tbody id="forexBody">
+            <tr><td colspan="3"><div class="loading"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="panel" style="grid-column:span 2">
+        <div class="panel-header">
+          <span class="panel-title">USD/TWD 走勢</span>
+        </div>
+        <div class="chart-container"><canvas id="forexChart"></canvas></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB: 加密貨幣 ── -->
+  <div class="tab-content" id="tab-crypto">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">加密貨幣</span></div>
+      <table class="stock-table">
+        <thead>
+          <tr><th>幣種</th><th>名稱</th><th>價格 (USD)</th><th>漲跌</th><th>漲跌幅</th><th>市值</th></tr>
+        </thead>
+        <tbody id="cryptoBody">
+          <tr><td colspan="6"><div class="loading"><div class="spinner"></div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: 商品 ── -->
+  <div class="tab-content" id="tab-commodities">
+    <div class="panel">
+      <div class="panel-header"><span class="panel-title">大宗商品</span></div>
+      <table class="stock-table">
+        <thead>
+          <tr><th>名稱</th><th>代號</th><th>價格</th><th>漲跌</th><th>漲跌幅</th></tr>
+        </thead>
+        <tbody id="commoditiesBody">
+          <tr><td colspan="5"><div class="loading"><div class="spinner"></div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── TAB: 熱力圖 ── -->
+  <div class="tab-content" id="tab-heatmap">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="panel-title">台股板塊熱力圖</span>
+        <span class="panel-meta">顏色深淺代表漲跌幅</span>
+      </div>
+      <div id="heatmapContainer" style="padding:12px">
+        <div class="loading"><div class="spinner"></div> 載入中…</div>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── DETAIL MODAL ── -->
+<div class="modal-overlay" id="detailModal" onclick="closeModal(event)">
+  <div class="modal" id="modalContent">
+    <button class="modal-close" onclick="closeModalBtn()">×</button>
+    <div id="modalBody">
+      <div class="loading"><div class="spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ──
+const API = '';  // Same origin; set to http://localhost:5001 for dev
+
+// ── STATE ──
+let twData = [], usData = [], sortState = { col: null, asc: true };
+let mainChartInst = null, forexChartInst = null, detailChartInst = null;
+
+// ── UTILS ──
+const fmt = (n, d=2) => n == null ? '—' : Number(n).toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtVol = n => {
+  if (!n) return '—';
+  if (n >= 1e8) return (n/1e8).toFixed(1) + '億';
+  if (n >= 1e4) return (n/1e4).toFixed(0) + '萬';
+  return n.toLocaleString();
+};
+const fmtMcap = n => {
+  if (!n) return '—';
+  if (n >= 1e12) return (n/1e12).toFixed(2) + 'T';
+  if (n >= 1e9)  return (n/1e9).toFixed(1) + 'B';
+  if (n >= 1e6)  return (n/1e6).toFixed(1) + 'M';
+  return n.toLocaleString();
+};
+const cls = v => v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
+const sign = v => v > 0 ? '+' : '';
+const badge = v => `<span class="chg-badge ${cls(v)}">${sign(v)}${fmt(v)}%</span>`;
+
+function heatColor(pct) {
+  const v = Math.min(Math.abs(pct), 5) / 5;
+  if (pct > 0) return `rgba(0,${Math.round(100+120*v)},${Math.round(80*v)}, ${0.3+0.6*v})`;
+  if (pct < 0) return `rgba(${Math.round(150+100*v)},${Math.round(30*v)},${Math.round(40+40*v)}, ${0.3+0.6*v})`;
+  return 'rgba(100,110,130,0.25)';
+}
+
+// ── TIME ──
+function updateClock() {
+  const now = new Date();
+  document.getElementById('headerTime').textContent =
+    now.toLocaleString('zh-TW', { timeZone:'Asia/Taipei', hour12:false,
+      year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+setInterval(updateClock, 1000); updateClock();
+
+// ── TABS ──
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
+  loadTab(name);
+}
+
+// ── CHART HELPERS ──
+function makeChartOptions(label, color='#5271ff') {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false }, tooltip: {
+      backgroundColor: '#1a1e28', borderColor: '#252a38', borderWidth: 1,
+      titleColor: '#8892a4', bodyColor: '#e4e8f0',
+      callbacks: { label: ctx => ' ' + fmt(ctx.parsed.y, 4) }
+    }},
+    scales: {
+      x: { grid: { color: 'rgba(37,42,56,0.5)' }, ticks: { color: '#6b7385', maxTicksLimit: 8, font: { family: 'IBM Plex Mono', size: 10 }}},
+      y: { position:'right', grid: { color: 'rgba(37,42,56,0.5)' }, ticks: { color: '#6b7385', font: { family: 'IBM Plex Mono', size: 10 }}}
+    },
+    interaction: { mode:'index', intersect:false },
+    elements: { point: { radius:0, hoverRadius:4 }, line: { borderWidth:2 }},
+  };
+}
+
+function drawChart(canvas, labels, closes, color) {
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,canvas.clientHeight||280);
+  grad.addColorStop(0, color+'44');
+  grad.addColorStop(1, color+'00');
+  return new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ data: closes, borderColor: color, backgroundColor: grad, fill: true, tension: 0.2 }]
+    },
+    options: makeChartOptions('', color),
+  });
+}
+
+async function loadMainChart(sym, period, interval) {
+  const canvas = document.getElementById('mainChart');
+  if (mainChartInst) { mainChartInst.destroy(); mainChartInst = null; }
+  canvas.getContext('2d').clearRect(0,0,canvas.width,canvas.height);
+  try {
+    const res = await fetch(`${API}/api/stock/${encodeURIComponent(sym)}/history?period=${period}&interval=${interval}`);
+    const json = await res.json();
+    const d = json.data || [];
+    const labels = d.map(r => r.date);
+    const closes = d.map(r => r.close);
+    if (!closes.length) return;
+    const first = closes[0], last = closes[closes.length-1];
+    const color = last >= first ? '#00d084' : '#ff4d6a';
+    mainChartInst = drawChart(canvas, labels, closes, color);
+  } catch(e) { console.error(e); }
+}
+
+// Period buttons
+document.querySelectorAll('.period-btn').forEach(btn => {
+  btn.addEventListener('click', function() {
+    const wrap = this.closest('.panel-header, .chart-periods');
+    wrap.querySelectorAll('.period-btn').forEach(b => b.classList.remove('active'));
+    this.classList.add('active');
+    loadMainChart(this.dataset.sym || '^TWII', this.dataset.period, this.dataset.interval);
+  });
+});
+
+// ── TICKER TAPE ──
+function buildTicker(taiex, usIndices) {
+  const items = [];
+  if (taiex?.price) items.push({ sym:'加權', name:'台灣加權', price:taiex.price, chg:taiex.change_pct });
+  (usIndices||[]).forEach(u => items.push({ sym:u.symbol, name:u.name, price:u.price, chg:u.change_pct }));
+  if (!items.length) return;
+  const html = [...items, ...items].map(it =>
+    `<div class="ticker-item" onclick="openDetail('${it.sym}')">
+      <span class="ticker-sym">${it.sym}</span>
+      <span class="ticker-price ${cls(it.chg)}">${fmt(it.price)}</span>
+      <span class="ticker-chg ${cls(it.chg)}">${sign(it.chg)}${fmt(it.chg)}%</span>
+    </div>`
+  ).join('');
+  document.getElementById('tickerInner').innerHTML = html;
+}
+
+// ── INDEX CARDS ──
+function buildIndexCards(taiex, usIndices) {
+  const all = [];
+  if (taiex?.price) all.push({ name:'加權指數', price:taiex.price, chg:taiex.change, pct:taiex.change_pct, sym:'加權' });
+  (usIndices||[]).forEach(u => all.push({ name:u.name, price:u.price, chg:u.change, pct:u.change_pct, sym:u.symbol }));
+  document.getElementById('indexCards').innerHTML = all.map(c => `
+    <div class="index-card ${c.pct >= 0 ? 'up-card' : 'down-card'}" onclick="openDetail('${c.sym}')">
+      <div class="card-name">${c.name}</div>
+      <div class="card-price ${cls(c.pct)}">${fmt(c.price)}</div>
+      <div class="card-change ${cls(c.pct)}">${sign(c.chg)}${fmt(c.chg)} (${sign(c.pct)}${fmt(c.pct)}%)</div>
+    </div>
+  `).join('');
+}
+
+// ── STOCK TABLE ROW ──
+function stockRow(s, fields) {
+  const sym = s.symbol || '';
+  const name = s.name || sym;
+  const price = s.price ?? s.close ?? 0;
+  const chg = s.change ?? 0;
+  const pct = s.change_pct ?? 0;
+  let cells = '';
+  for (const f of fields) {
+    switch(f) {
+      case 'symbol': cells += `<td class="sym-col">${sym}</td>`; break;
+      case 'name':   cells += `<td class="name-col">${name}</td>`; break;
+      case 'price':  cells += `<td class="price-col ${cls(pct)}">${fmt(price)}</td>`; break;
+      case 'change': cells += `<td class="${cls(pct)}">${sign(chg)}${fmt(chg)}</td>`; break;
+      case 'change_pct': cells += `<td>${badge(pct)}</td>`; break;
+      case 'volume': cells += `<td class="vol-col">${fmtVol(s.volume)}</td>`; break;
+      case 'open':   cells += `<td class="mono">${fmt(s.open)}</td>`; break;
+      case 'high':   cells += `<td class="up">${fmt(s.high)}</td>`; break;
+      case 'low':    cells += `<td class="down">${fmt(s.low)}</td>`; break;
+      case 'market_cap': cells += `<td class="mono">${fmtMcap(s.market_cap)}</td>`; break;
+    }
+  }
+  return `<tr onclick="openDetail('${sym}')">${cells}</tr>`;
+}
+
+function renderTable(tbodyId, data, fields) {
+  const tbody = document.getElementById(tbodyId);
+  if (!data?.length) { tbody.innerHTML = '<tr><td colspan="99" style="color:var(--muted);text-align:center;padding:20px">暫無資料</td></tr>'; return; }
+  tbody.innerHTML = data.map(s => stockRow(s, fields)).join('');
+}
+
+// ── SORT ──
+function sortTable(which, col) {
+  if (sortState.col === col) sortState.asc = !sortState.asc;
+  else { sortState.col = col; sortState.asc = false; }
+  const data = which === 'tw' ? twData : usData;
+  const sorted = [...data].sort((a,b) => {
+    const av = a[col] ?? '', bv = b[col] ?? '';
+    const n = typeof av === 'number';
+    return sortState.asc ? (n ? av-bv : String(av).localeCompare(String(bv))) : (n ? bv-av : String(bv).localeCompare(String(av)));
+  });
+  const id = which === 'tw' ? 'twStocksBody' : 'usStocksBody';
+  const fields = which === 'tw'
+    ? ['symbol','name','price','open','high','low','change','change_pct','volume']
+    : ['symbol','name','price','change','change_pct','volume'];
+  renderTable(id, sorted, fields);
+}
+
+// ── MOVERS ──
+function buildMovers(data) {
+  const el = document.getElementById('moversList');
+  if (!data) { el.innerHTML = '<div class="loading">暫無資料</div>'; return; }
+  const { gainers=[], losers=[] } = data;
+  let html = '<div class="movers-label" style="color:var(--up)">▲ 漲幅榜</div>';
+  html += gainers.map(s => `
+    <div class="mover-item" onclick="openDetail('${s.symbol}')">
+      <div class="mover-left">
+        <span class="mover-sym">${s.symbol}</span>
+        <span class="mover-name">${s.name}</span>
+      </div>
+      <div class="mover-right">
+        <div class="mover-price up">${fmt(s.price)}</div>
+        <div>${badge(s.change_pct)}</div>
+      </div>
+    </div>`).join('');
+  html += '<div class="movers-label" style="color:var(--down);margin-top:8px">▼ 跌幅榜</div>';
+  html += losers.map(s => `
+    <div class="mover-item" onclick="openDetail('${s.symbol}')">
+      <div class="mover-left">
+        <span class="mover-sym">${s.symbol}</span>
+        <span class="mover-name">${s.name}</span>
+      </div>
+      <div class="mover-right">
+        <div class="mover-price down">${fmt(s.price)}</div>
+        <div>${badge(s.change_pct)}</div>
+      </div>
+    </div>`).join('');
+  el.innerHTML = html;
+}
+
+// ── NEWS ──
+function buildNews(items) {
+  const el = document.getElementById('newsList');
+  if (!items?.length) { el.innerHTML = '<div style="padding:16px;color:var(--muted)">暫無新聞</div>'; return; }
+  el.innerHTML = items.map(n => `
+    <div class="news-item" onclick="window.open('${n.link}','_blank')">
+      <div class="news-title">${n.title}</div>
+      <div class="news-meta">
+        <span class="news-source">${n.source||'—'}</span>
+        <span>${n.time||''}</span>
+      </div>
+    </div>`).join('');
+}
+
+// ── HEATMAP ──
+function buildHeatmap(items) {
+  const el = document.getElementById('heatmapContainer');
+  if (!items?.length) { el.innerHTML = '<div style="color:var(--muted)">暫無資料</div>'; return; }
+  const sectors = {};
+  items.forEach(s => { (sectors[s.sector] = sectors[s.sector]||[]).push(s); });
+  el.innerHTML = Object.entries(sectors).map(([sec, stocks]) => `
+    <div class="heat-sector">
+      <div class="heat-sector-label">${sec}</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px">
+        ${stocks.map(s => `
+          <div class="heat-stock" style="background:${heatColor(s.change_pct)}" onclick="openDetail('${s.symbol}')">
+            <div class="hs-sym">${s.symbol}</div>
+            <div>${s.name}</div>
+            <div class="hs-chg ${cls(s.change_pct)}">${sign(s.change_pct)}${fmt(s.change_pct)}%</div>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+// ── FOREX / CRYPTO / COMMODITIES ──
+function buildForex(items) {
+  document.getElementById('forexBody').innerHTML = (items||[]).map(f => `
+    <tr>
+      <td class="mono" style="color:var(--text)">${f.symbol}</td>
+      <td class="mono ${cls(f.change_pct)}">${fmt(f.price, 4)}</td>
+      <td>${badge(f.change_pct)}</td>
+    </tr>`).join('') || '<tr><td colspan="3">暫無資料</td></tr>';
+  // Load USDT walk chart
+  loadForexChart();
+}
+
+async function loadForexChart() {
+  const canvas = document.getElementById('forexChart');
+  if (forexChartInst) { forexChartInst.destroy(); forexChartInst = null; }
+  try {
+    const res = await fetch(`${API}/api/stock/USDTWD%3DX/history?period=3mo&interval=1d`);
+    const json = await res.json();
+    const d = json.data || [];
+    const labels = d.map(r=>r.date), closes = d.map(r=>r.close);
+    forexChartInst = drawChart(canvas, labels, closes, '#ff9500');
+  } catch(e) {}
+}
+
+function buildCrypto(items) {
+  document.getElementById('cryptoBody').innerHTML = (items||[]).map(c => `
+    <tr onclick="openDetail('${c.symbol}-USD')">
+      <td class="sym-col">${c.symbol}</td>
+      <td class="name-col">${c.symbol}</td>
+      <td class="price-col ${cls(c.change_pct)}">${fmt(c.price)}</td>
+      <td class="${cls(c.change_pct)}">${sign(c.change)}${fmt(c.change)}</td>
+      <td>${badge(c.change_pct)}</td>
+      <td class="vol-col">${fmtMcap(c.market_cap)}</td>
+    </tr>`).join('') || '<tr><td colspan="6">暫無資料</td></tr>';
+}
+
+function buildCommodities(items) {
+  document.getElementById('commoditiesBody').innerHTML = (items||[]).map(c => `
+    <tr>
+      <td class="name-col">${c.name}</td>
+      <td class="sym-col">${c.symbol}</td>
+      <td class="price-col ${cls(c.change_pct)}">${fmt(c.price)}</td>
+      <td class="${cls(c.change_pct)}">${sign(c.change)}${fmt(c.change)}</td>
+      <td>${badge(c.change_pct)}</td>
+    </tr>`).join('') || '<tr><td colspan="5">暫無資料</td></tr>';
+}
+
+// ── MODAL DETAIL ──
+async function openDetail(symbol) {
+  if (!symbol || symbol === '加權' || symbol.startsWith('^')) return;
+  document.getElementById('detailModal').classList.add('open');
+  document.getElementById('modalBody').innerHTML = '<div class="loading" style="height:200px"><div class="spinner"></div> 載入中…</div>';
+  try {
+    const res = await fetch(`${API}/api/stock/${encodeURIComponent(symbol)}/detail`);
+    const json = await res.json();
+    const d = json.data || {};
+    if (!d.symbol && !d.name) { document.getElementById('modalBody').innerHTML = '<div style="padding:20px;color:var(--muted)">查無資料</div>'; return; }
+    const pct = d.change_pct || 0;
+    document.getElementById('modalBody').innerHTML = `
+      <div class="modal-symbol">${d.symbol||symbol}</div>
+      <div class="modal-name">${d.name||symbol}</div>
+      <div class="modal-price ${cls(pct)}">${fmt(d.price)}</div>
+      <div class="modal-change ${cls(pct)}">${sign(d.change)}${fmt(d.change)} (${sign(pct)}${fmt(pct)}%) · ${d.currency||''}</div>
+      <div class="modal-stats">
+        <div class="stat-item"><span class="stat-label">開盤</span><span class="stat-value">${fmt(d.open)}</span></div>
+        <div class="stat-item"><span class="stat-label">最高</span><span class="stat-value up">${fmt(d.high)}</span></div>
+        <div class="stat-item"><span class="stat-label">最低</span><span class="stat-value down">${fmt(d.low)}</span></div>
+        <div class="stat-item"><span class="stat-label">昨收</span><span class="stat-value">${fmt(d.prev_close)}</span></div>
+        <div class="stat-item"><span class="stat-label">成交量</span><span class="stat-value">${fmtVol(d.volume)}</span></div>
+        <div class="stat-item"><span class="stat-label">市值</span><span class="stat-value">${fmtMcap(d.market_cap)}</span></div>
+        <div class="stat-item"><span class="stat-label">本益比</span><span class="stat-value">${d.pe_ratio ? fmt(d.pe_ratio,1) : '—'}</span></div>
+        <div class="stat-item"><span class="stat-label">殖利率</span><span class="stat-value">${d.dividend_yield ? fmt(d.dividend_yield,2)+'%' : '—'}</span></div>
+        <div class="stat-item"><span class="stat-label">52週高</span><span class="stat-value up">${fmt(d.week52_high)}</span></div>
+        <div class="stat-item"><span class="stat-label">52週低</span><span class="stat-value down">${fmt(d.week52_low)}</span></div>
+        <div class="stat-item"><span class="stat-label">類股</span><span class="stat-value" style="font-size:11px">${d.sector||'—'}</span></div>
+        <div class="stat-item"><span class="stat-label">交易所</span><span class="stat-value" style="font-size:11px">${d.exchange||'—'}</span></div>
+      </div>
+      ${d.description ? `<div class="modal-desc">${d.description}</div>` : ''}
+      <div class="modal-chart"><canvas id="detailChart"></canvas></div>
+    `;
+    // Load chart
+    const sym2 = symbol.length === 4 && /^\d+$/.test(symbol) ? symbol : symbol;
+    const hres = await fetch(`${API}/api/stock/${encodeURIComponent(sym2)}/history?period=3mo&interval=1d`);
+    const hjson = await hres.json();
+    const hd = hjson.data || [];
+    const canvas = document.getElementById('detailChart');
+    if (canvas && hd.length) {
+      const closes = hd.map(r=>r.close);
+      const first = closes[0], last = closes[closes.length-1];
+      const color = last >= first ? '#00d084' : '#ff4d6a';
+      if (detailChartInst) detailChartInst.destroy();
+      detailChartInst = drawChart(canvas, hd.map(r=>r.date), closes, color);
+    }
+  } catch(e) {
+    document.getElementById('modalBody').innerHTML = `<div style="padding:20px;color:var(--down)">載入失敗: ${e.message}</div>`;
+  }
+}
+
+function closeModal(e) { if (e.target === document.getElementById('detailModal')) closeModalBtn(); }
+function closeModalBtn() {
+  document.getElementById('detailModal').classList.remove('open');
+  if (detailChartInst) { detailChartInst.destroy(); detailChartInst = null; }
+}
+document.addEventListener('keydown', e => { if (e.key==='Escape') closeModalBtn(); });
+
+// ── SEARCH ──
+let searchTimer;
+document.getElementById('searchInput').addEventListener('input', function() {
+  clearTimeout(searchTimer);
+  const q = this.value.trim();
+  const res = document.getElementById('searchResults');
+  if (!q) { res.classList.remove('show'); return; }
+  searchTimer = setTimeout(async () => {
+    try {
+      const r = await fetch(`${API}/api/search?q=${encodeURIComponent(q)}`);
+      const json = await r.json();
+      const items = (json.data||[]).slice(0,8);
+      if (!items.length) { res.classList.remove('show'); return; }
+      res.innerHTML = items.map(it => `
+        <div class="search-item" onclick="searchSelect('${it.symbol}','${it.name.replace(/'/g,"\\'")}')">
+          <div><span class="sym">${it.symbol}</span> <span class="nm">${it.name}</span></div>
+          <span class="ex">${it.exchange||''} · ${it.type||''}</span>
+        </div>`).join('');
+      res.classList.add('show');
+    } catch(e) {}
+  }, 350);
+});
+document.addEventListener('click', e => {
+  if (!e.target.closest('.search-wrap')) document.getElementById('searchResults').classList.remove('show');
+});
+function searchSelect(sym, name) {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchResults').classList.remove('show');
+  openDetail(sym);
+}
+
+// ── LOAD FUNCTIONS ──
+let loadedTabs = new Set();
+
+async function loadTab(name) {
+  if (loadedTabs.has(name)) return;
+  loadedTabs.add(name);
+  if (name === 'tw') await loadTwStocks();
+  if (name === 'us') await loadUsStocks();
+  if (name === 'etf') await loadEtf();
+  if (name === 'forex') await loadForexTab();
+  if (name === 'crypto') await loadCrypto();
+  if (name === 'commodities') await loadCommodities();
+  if (name === 'heatmap') await loadHeatmap();
+}
+
+async function loadOverview() {
+  try {
+    const [ovRes, moversRes, newsRes] = await Promise.all([
+      fetch(`${API}/api/market_overview`),
+      fetch(`${API}/api/top_tw`),
+      fetch(`${API}/api/news`),
+    ]);
+    const ov = await ovRes.json();
+    buildTicker(ov.taiex, ov.us_indices);
+    buildIndexCards(ov.taiex, ov.us_indices);
+    loadMainChart('^TWII', '1mo', '1d');
+    const movers = await moversRes.json();
+    buildMovers(movers);
+    const newsJson = await newsRes.json();
+    buildNews(newsJson.data);
+  } catch(e) { console.error('overview error', e); }
+  // Overview TW stocks
+  try {
+    const r = await fetch(`${API}/api/tw_stocks`);
+    const json = await r.json();
+    const preview = (json.data||[]).slice(0,10);
+    renderTable('overviewTwStocks', preview, ['symbol','name','price','change','change_pct','volume']);
+  } catch(e) {}
+}
+
+async function loadTwStocks() {
+  try {
+    const r = await fetch(`${API}/api/tw_stocks`);
+    const json = await r.json();
+    twData = json.data || [];
+    document.getElementById('twMeta').textContent = `共 ${twData.length} 檔`;
+    renderTable('twStocksBody', twData, ['symbol','name','price','open','high','low','change','change_pct','volume']);
+  } catch(e) { document.getElementById('twStocksBody').innerHTML = '<tr><td colspan="9" style="color:var(--down);padding:16px">載入失敗</td></tr>'; }
+}
+
+async function loadUsStocks() {
+  try {
+    const r = await fetch(`${API}/api/us_stocks`);
+    const json = await r.json();
+    usData = json.data || [];
+    renderTable('usStocksBody', usData, ['symbol','name','price','change','change_pct','volume']);
+  } catch(e) {}
+}
+
+async function loadEtf() {
+  try {
+    const r = await fetch(`${API}/api/etf`);
+    const json = await r.json();
+    renderTable('etfBody', json.data||[], ['symbol','name','price','change','change_pct','volume']);
+  } catch(e) {}
+}
+
+async function loadForexTab() {
+  try {
+    const r = await fetch(`${API}/api/forex`);
+    const json = await r.json();
+    buildForex(json.data||[]);
+  } catch(e) {}
+}
+
+async function loadCrypto() {
+  try {
+    const r = await fetch(`${API}/api/crypto`);
+    const json = await r.json();
+    buildCrypto(json.data||[]);
+  } catch(e) {}
+}
+
+async function loadCommodities() {
+  try {
+    const r = await fetch(`${API}/api/commodities`);
+    const json = await r.json();
+    buildCommodities(json.data||[]);
+  } catch(e) {}
+}
+
+async function loadHeatmap() {
+  try {
+    const r = await fetch(`${API}/api/heatmap`);
+    const json = await r.json();
+    buildHeatmap(json.data||[]);
+  } catch(e) {}
+}
+
+// ── AUTO REFRESH ──
+setInterval(() => {
+  loadedTabs.clear();
+  loadTab(document.querySelector('.tab-btn.active')?.dataset?.tab || 'overview');
+  if (document.getElementById('tab-overview').classList.contains('active')) loadOverview();
+}, 60000);
+
+// ── INIT ──
+loadOverview();
+</script>
+</body>
+</html>
